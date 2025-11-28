@@ -2,8 +2,8 @@ const mysql = require("mysql2/promise");
 const poolConfig = {
     host: "217.21.87.103",
     user: "u205680228_rohit_sharma",
-    password: "Rohit@sharma2004",
-    database: "u205680228_hotelmanagemen",
+    password: "Rohit@sharma1",
+    database: "u205680228_hotel_booking",
     port: process.env.DB_PORT,
     waitForConnections: true, // If connections are maxed out, queue new requests
     connectionLimit: 10,     // Max number of simultaneous connections (adjust as needed)
