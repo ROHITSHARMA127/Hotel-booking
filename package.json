@@ -18,6 +18,7 @@
     "debug": "^4.4.3",
     "denque": "^2.1.0",
     "depd": "^2.0.0",
+    "dotenv": "^17.2.3",
     "dunder-proto": "^1.0.1",
     "e": "^0.2.33",
     "ecdsa-sig-formatter": "^1.0.11",

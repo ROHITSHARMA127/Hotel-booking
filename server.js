@@ -164,7 +164,11 @@ app.put("/api/user/profile/:id", async (request, response) => {
 
 
 
-app.listen(4003, (error)=>{
-    if(error) console.log("Error "+ error);
-    console.log("Server is running on port 4003");
+// app.listen(4003, (error)=>{
+//     if(error) console.log("Error "+ error);
+//     console.log("Server is running on port 4003");
+// })
+
+pp.listen(PORT,"0.0.0.0",()=>{
+    console.log(`Server is running on port ${PORT}`);
 })
