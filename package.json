@@ -46,7 +46,7 @@
     "ipaddr.js": "^1.9.1",
     "is-promise": "^4.0.0",
     "is-property": "^1.0.2",
-    "jsonwebtoken": "^9.0.2",
+    "jsonwebtoken": "^9.0.3",
     "jwa": "^1.4.2",
     "jws": "^3.2.2",
     "lodash.includes": "^4.3.0",
