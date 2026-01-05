@@ -3,6 +3,8 @@ const db = require("./db");
 const app = express();
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const PORT = process.env.PORT || 3005;
+
 
 app.use(express.json());
 
@@ -381,6 +383,6 @@ app.put("/api/booking/cancel/:id", (request, response) => {
   );
 });
 
-app.listen(PORT,"0.0.0.0",()=>{
-    console.log(`Server is running on port ${PORT}`);
-})
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
