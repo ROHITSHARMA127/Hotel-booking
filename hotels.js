@@ -39,7 +39,4 @@ app.get("/api/hotels/:id", async (req, res) => {
 
 
 
-pp.listen(PORT,"0.0.0.0",()=>{
-    console.log(`Server is running on port ${PORT}`);
-})
 

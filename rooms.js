@@ -54,6 +54,3 @@ app.get("/api/room/:id", (request, response) => {
   );
 });
 
-pp.listen(PORT,"0.0.0.0",()=>{
-    console.log(`Server is running on port ${PORT}`);
-})

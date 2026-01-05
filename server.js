@@ -169,6 +169,218 @@ app.put("/api/user/profile/:id", async (request, response) => {
 //     console.log("Server is running on port 3000");
 // })
 
-pp.listen(PORT,"0.0.0.0",()=>{
+
+// HOTEL API............
+
+
+
+app.get("/api/hotels", async (req, res) => {
+  try {
+    const [rows] = await pool.query("SELECT * FROM hotels");
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error });
+  }
+});
+
+// get details by id
+app.get("/api/hotels/:id", async (req, res) => {
+  const hotelId = req.params.id;
+
+  try {
+    const [rows] = await pool.query(
+      "SELECT * FROM hotels WHERE id = ?",
+      [hotelId]
+    );
+
+    // If no hotel found
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Hotel not found" });
+    }
+
+    res.json(rows[0]);
+  } catch (error) {
+    return res.status(500).json({
+      message: "Server error",
+      error: error.message
+    });
+  }
+});
+
+
+
+//room list in hotel
+app.get("/api/rooms/:hotelId", (request, response) => {
+  const hotelId = request.params.hotelId;
+
+  db.query(
+    "SELECT * FROM rooms WHERE hotel_id = ?",
+    [hotelId],
+    (error, result) => {
+      if (error) {
+        return response.status(500).json({ message: "Internal Server Error", error });
+      }
+
+      if (result.length === 0) {
+        return response.status(404).json({ message: "No rooms found for this hotel" });
+      }
+
+      response.status(200).json({
+        message: "Room list fetched successfully",
+        data: result
+      });
+    }
+  );
+});
+
+
+// ROOMS API............
+
+
+// room details
+app.get("/api/room/:id", (request, response) => {
+  const roomId = request.params.id;
+
+  db.query(
+    "SELECT * FROM rooms WHERE id = ?",
+    [roomId],
+    (error, result) => {
+      if (error) {
+        return response.status(500).json({
+          message: "Internal Server Error",
+          error
+        });
+      }
+
+      if (result.length === 0) {
+        return response.status(404).json({ message: "Room not found" });
+      }
+
+      response.status(200).json({
+        message: "Room details fetched successfully",
+        data: result[0]  // single object
+      });
+    }
+  );
+});
+
+
+// BOOKING API.............
+
+
+// create booking 
+app.post("/api/booking/create", (request, response) => {
+  const { user_id, hotel_id, room_id, check_in, check_out, total_price, guests } = request.body;
+
+  if (!user_id || !hotel_id || !room_id || !check_in || !check_out || !total_price) {
+    return response.status(400).json({ message: "All fields are required!" });
+  }
+
+  db.query(
+    "INSERT INTO bookings (user_id, hotel_id, room_id, check_in, check_out, total_price, guests, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    [user_id, hotel_id, room_id, check_in, check_out, total_price, guests, "pending"],
+    (error, result) => {
+      if (error) {
+        return response.status(500).json({ message: "Internal server error: " + error });
+      }
+
+      return response.status(200).json({
+        message: "Booking created successfully",
+        booking_id: result.insertId
+      });
+    }
+  );
+});
+
+//booking details 
+app.get("/api/booking/:id", (request, response) => {
+  const bookingId = request.params.id;
+
+  db.query(
+    `SELECT bookings.*, users.name AS user_name, hotels.hotel_name, rooms.room_type 
+     FROM bookings
+     JOIN users ON bookings.user_id = users.id
+     JOIN hotels ON bookings.hotel_id = hotels.id
+     JOIN rooms ON bookings.room_id = rooms.id
+     WHERE bookings.id = ?`,
+    [bookingId],
+    (error, result) => {
+      if (error) {
+        return response.status(500).json({
+          message: "Internal server error: " + error
+        });
+      }
+
+      if (result.length === 0) {
+        return response.status(404).json({ message: "Booking not found" });
+      }
+
+      return response.status(200).json({
+        message: "Booking details fetched successfully",
+        data: result[0]
+      });
+    }
+  );
+});
+
+
+//user booking history
+app.get("/api/booking/user/:id", (request, response) => {
+  const userId = request.params.id;
+
+  db.query(
+    `SELECT bookings.*, hotels.hotel_name, hotels.city, rooms.room_type 
+     FROM bookings
+     JOIN hotels ON bookings.hotel_id = hotels.id
+     JOIN rooms ON bookings.room_id = rooms.id
+     WHERE bookings.user_id = ?
+     ORDER BY bookings.id DESC`,
+    [userId],
+    (error, result) => {
+      if (error) {
+        return response.status(500).json({
+          message: "Internal Server Error: " + error
+        });
+      }
+
+      if (result.length === 0) {
+        return response.status(404).json({ message: "No booking history found" });
+      }
+
+      return response.status(200).json({
+        message: "User booking history fetched successfully",
+        data: result
+      });
+    }
+  );
+});
+
+
+//cancle booking
+app.put("/api/booking/cancel/:id", (request, response) => {
+  const bookingId = request.params.id;
+
+  db.query(
+    "UPDATE bookings SET status = ? WHERE id = ?",
+    ["cancelled", bookingId],
+    (error, result) => {
+      if (error) {
+        return response.status(500).json({
+          message: "Internal server error: " + error
+        });
+      }
+
+      if (result.affectedRows === 0) {
+        return response.status(404).json({ message: "Booking not found" });
+      }
+
+      return response.status(200).json({
+        message: "Booking cancelled successfully"
+      });
+    }
+  );
+});
+
+app.listen(PORT,"0.0.0.0",()=>{
     console.log(`Server is running on port ${PORT}`);
 })
