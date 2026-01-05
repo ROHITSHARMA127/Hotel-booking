@@ -51,26 +51,54 @@ app.post("/api/user/register", async (request, response) => {
 
 
 // login api 
-app.post("/api/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
+app.post("/api/user/login", async (request, response) => {
+    const email = request.body.email;
+    const password = request.body.password;     // plain password
+    const secretKey = "ghdfjjgi9ew8865w"; 
 
-    const [rows] = await pool.query(
-      "SELECT * FROM users WHERE email = ?",
-      [email]
-    );
+    try {
+        // get user by email
+        const [result] = await db.query(
+            "SELECT id, name, email, password FROM users WHERE email = ?",
+            [email]
+        );
 
-    if (rows.length === 0) {
-      return res.status(401).json({ message: "Invalid credentials" });
+        // if email not found
+        if (result.length === 0) {
+            return response.status(401).json({ message: "Login failed: Invalid email or password." });
+        }
+
+        const user = result[0];
+
+        // plain password compare
+        if (password !== user.password) {
+            return response.status(401).json({ message: "Login failed: Invalid email or password." });
+        }
+
+        // create jwt token
+        const token = jwt.sign(
+            { id: user.id, name: user.name, email: user.email },
+            secretKey,
+            { expiresIn: "1h" }
+        );
+
+        response.status(200).json({
+            message: "Login successfully",
+            token: token,
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email
+            }
+        });
+
+    } catch (error) {
+        console.error("Login attempt error:", error);
+        return response.status(500).json({
+            message: "An internal server error occurred during login."
+        });
     }
-
-    res.json({ message: "Login successful" });
-  } catch (err) {
-    console.error("Login attempt error:", err.message);
-    res.status(500).json({ error: "Database connection failed" });
-  }
 });
-
 
 
 
