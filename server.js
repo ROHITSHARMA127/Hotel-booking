@@ -160,21 +160,9 @@ app.put("/api/user/profile/:id", async (request, response) => {
 
 
 
-
-
-
-
-
-
-// app.listen(3000, (error)=>{
-//     if(error) console.log("Error "+ error);
-//     console.log("Server is running on port 3000");
-// })
-
-
 // HOTEL API............
 
-
+// get all hotel
 
 app.get("/api/hotels", async (req, res) => {
   try {
@@ -205,6 +193,58 @@ app.get("/api/hotels/:id", async (req, res) => {
     return res.status(500).json({
       message: "Server error",
       error: error.message
+    });
+  }
+});
+
+// search hotel
+
+
+app.get("/api/hotels/search", async (req, res) => {
+  const { city, minPrice, maxPrice, rating } = req.query;
+
+  try {
+    let query = "SELECT * FROM hotels WHERE 1=1";
+    let values = [];
+
+    if (city) {
+      query += " AND city = ?";
+      values.push(city);
+    }
+
+    if (minPrice) {
+      query += " AND price >= ?";
+      values.push(minPrice);
+    }
+
+    if (maxPrice) {
+      query += " AND price <= ?";
+      values.push(maxPrice);
+    }
+
+    if (rating) {
+      query += " AND rating >= ?";
+      values.push(rating);
+    }
+
+    const [rows] = await pool.query(query, values);
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        message: "No hotels found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      total: rows.length,
+      hotels: rows
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: "Server error"
     });
   }
 });
@@ -294,6 +334,8 @@ app.post("/api/booking/create", (request, response) => {
   );
 });
 
+
+
 //booking details 
 app.get("/api/booking/:id", (request, response) => {
   const bookingId = request.params.id;
@@ -382,6 +424,55 @@ app.put("/api/booking/cancel/:id", (request, response) => {
     }
   );
 });
+
+
+// Creat order payment api.................
+
+
+app.post("/api/payment/create", async (req, res) => {
+  const { user_id, booking_id, amount, payment_method } = req.body;
+
+  try {
+    const [result] = await pool.query(
+      `INSERT INTO payments (user_id, booking_id, amount, payment_method, status)
+       VALUES (?, ?, ?, ?, 'PENDING')`,
+      [user_id, booking_id, amount, payment_method]
+    );
+
+    res.status(201).json({
+      message: "Payment order created",
+      payment_id: result.insertId
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+// Payment sucessfully
+
+app.post("/api/payment/confirm", async (req, res) => {
+  const { payment_id, transaction_id } = req.body;
+
+  try {
+    await pool.query(
+      `UPDATE payments 
+       SET status='SUCCESS', transaction_id=? 
+       WHERE id=?`,
+      [transaction_id, payment_id]
+    );
+
+    res.json({ message: "Payment successful" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+
+
+
+
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
