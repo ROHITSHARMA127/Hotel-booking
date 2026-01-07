@@ -166,7 +166,7 @@ app.put("/api/user/profile/:id", async (request, response) => {
 
 app.get("/api/hotels", async (req, res) => {
   try {
-    const [rows] = await pool.query("SELECT * FROM hotels");
+    const [rows] = await db.query("SELECT * FROM hotels");
     res.json(rows);
   } catch (error) {
     res.status(500).json({ message: "Server error", error });
@@ -178,7 +178,7 @@ app.get("/api/hotels/:id", async (req, res) => {
   const hotelId = req.params.id;
 
   try {
-    const [rows] = await pool.query(
+    const [rows] = await db.query(
       "SELECT * FROM hotels WHERE id = ?",
       [hotelId]
     );
@@ -227,7 +227,7 @@ app.get("/api/hotels/search", async (req, res) => {
       values.push(rating);
     }
 
-    const [rows] = await pool.query(query, values);
+    const [rows] = await db.query(query, values);
 
     if (rows.length === 0) {
       return res.status(404).json({
@@ -433,7 +433,7 @@ app.post("/api/payment/create", async (req, res) => {
   const { user_id, booking_id, amount, payment_method } = req.body;
 
   try {
-    const [result] = await pool.query(
+    const [result] = await db.query(
       `INSERT INTO payments (user_id, booking_id, amount, payment_method, status)
        VALUES (?, ?, ?, ?, 'PENDING')`,
       [user_id, booking_id, amount, payment_method]
@@ -451,22 +451,6 @@ app.post("/api/payment/create", async (req, res) => {
 
 // Payment sucessfully
 
-app.post("/api/payment/confirm", async (req, res) => {
-  const { payment_id, transaction_id } = req.body;
-
-  try {
-    await pool.query(
-      `UPDATE payments 
-       SET status='SUCCESS', transaction_id=? 
-       WHERE id=?`,
-      [transaction_id, payment_id]
-    );
-
-    res.json({ message: "Payment successful" });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 
 
