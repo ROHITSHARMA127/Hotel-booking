@@ -451,6 +451,41 @@ app.post("/api/payment/create", async (req, res) => {
 
 // Payment sucessfully
 
+app.put("/api/payment/success/:paymentId", async (req, res) => {
+  const paymentId = req.params.paymentId;
+
+  try {
+    // 1️⃣ Update payment status
+    await db.query(
+      "UPDATE payments SET status = 'SUCCESS' WHERE id = ?",
+      [paymentId]
+    );
+
+    // 2️⃣ Get booking_id from payment
+    const [payment] = await db.query(
+      "SELECT booking_id FROM payments WHERE id = ?",
+      [paymentId]
+    );
+
+    if (payment.length === 0) {
+      return res.status(404).json({ message: "Payment not found" });
+    }
+
+    // 3️⃣ Confirm booking
+    await db.query(
+      "UPDATE bookings SET status = 'CONFIRMED' WHERE id = ?",
+      [payment[0].booking_id]
+    );
+
+    res.json({
+      success: true,
+      message: "Payment successful & booking confirmed"
+    });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 
 
