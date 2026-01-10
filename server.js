@@ -175,6 +175,44 @@ app.get("/api/hotels", async (req, res) => {
   }
 });
 
+// Search hotels...............
+
+app.get("/api/hotels/search", async (req, res) => {
+  try {
+    const { location } = req.query;
+
+    let query = "SELECT * FROM hotels WHERE 1=1";
+    let values = [];
+
+    if (location) {
+      query += " AND LOWER(TRIM(location)) LIKE LOWER(?)";
+      values.push(`%${location.trim()}%`);
+    }
+
+    const [rows] = await db.query(query, values);
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Hotel not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      total: rows.length,
+      hotels: rows
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
+});
+
+
 // get details by id
 app.get("/api/hotels/:id", async (req, res) => {
   const hotelId = req.params.id;
@@ -199,51 +237,8 @@ app.get("/api/hotels/:id", async (req, res) => {
   }
 });
 
-// search hotel
 
 
-app.get("/api/hotels/search", async (req, res) => {
-  try {
-    const { location, minPrice, maxPrice, rating } = req.query;
-
-    let query = "SELECT * FROM hotels WHERE 1=1";
-    let values = [];
-
-    if (location) {
-      query += " AND LOWER(location) LIKE LOWER(?)";
-      values.push(`%${location.trim()}%`);
-    }
-
-    if (minPrice) {
-      query += " AND price >= ?";
-      values.push(minPrice);
-    }
-
-    if (maxPrice) {
-      query += " AND price <= ?";
-      values.push(maxPrice);
-    }
-
-    if (rating) {
-      query += " AND rating >= ?";
-      values.push(rating);
-    }
-
-    const [rows] = await db.query(query, values);
-
-    res.status(200).json({
-      success: true,
-      total: rows.length,
-      hotels: rows
-    });
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      message: "Server error"
-    });
-  }
-});
 
 // Room api ...........................................................................................Roomm api
 
@@ -318,119 +313,164 @@ app.get("/api/room/:id", async (req, res) => {
 
 
 // create booking 
-app.post("/api/booking/create", (request, response) => {
-  const { user_id, hotel_id, room_id, check_in, check_out, total_price, guests } = request.body;
+app.post("/api/booking/create", async (req, res) => {
+  try {
+    const { user_id, hotel_id, room_id, check_in, check_out, total_price, guests } = req.body;
 
-  if (!user_id || !hotel_id || !room_id || !check_in || !check_out || !total_price) {
-    return response.status(400).json({ message: "All fields are required!" });
-  }
-
-  db.query(
-    "INSERT INTO bookings (user_id, hotel_id, room_id, check_in, check_out, total_price, guests, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    [user_id, hotel_id, room_id, check_in, check_out, total_price, guests, "pending"],
-    (error, result) => {
-      if (error) {
-        return response.status(500).json({ message: "Internal server error: " + error });
-      }
-
-      return response.status(200).json({
-        message: "Booking created successfully",
-        booking_id: result.insertId
-      });
+    // 1️⃣ Validate required fields
+    if (!user_id || !hotel_id || !room_id || !check_in || !check_out || !total_price || !guests) {
+      return res.status(400).json({ message: "All fields are required!" });
     }
-  );
-});
 
+    // 2️⃣ Validate check-in and check-out dates
+    const checkInDate = new Date(check_in);
+    const checkOutDate = new Date(check_out);
+    if (isNaN(checkInDate) || isNaN(checkOutDate) || checkInDate >= checkOutDate) {
+      return res.status(400).json({ message: "Invalid check-in or check-out date" });
+    }
+
+    // 3️⃣ Check room availability
+    const [room] = await db.query("SELECT available_rooms FROM rooms WHERE id = ?", [room_id]);
+    if (!room[0]) {
+      return res.status(404).json({ message: "Room not found" });
+    }
+    if (room[0].available_rooms < guests) {
+      return res.status(400).json({ message: "Not enough rooms available" });
+    }
+
+    // 4️⃣ Insert booking
+    const [result] = await db.query(
+      "INSERT INTO bookings (user_id, hotel_id, room_id, check_in, check_out, total_price, guests, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [user_id, hotel_id, room_id, check_in, check_out, total_price, guests, "pending"]
+    );
+
+    // 5️⃣ Optionally update available_rooms
+    await db.query(
+      "UPDATE rooms SET available_rooms = available_rooms - ? WHERE id = ?",
+      [guests, room_id]
+    );
+
+    // 6️⃣ Return response
+    return res.status(200).json({
+      message: "Booking created successfully",
+      booking_id: result.insertId
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Internal server error", error });
+  }
+});
 
 
 //booking details 
-app.get("/api/booking/:id", (request, response) => {
-  const bookingId = request.params.id;
+app.get("/api/booking/:id", async (req, res) => {
+  try {
+    const bookingId = req.params.id;
 
-  db.query(
-    `SELECT bookings.*, users.name AS user_name, hotels.hotel_name, rooms.room_type 
-     FROM bookings
-     JOIN users ON bookings.user_id = users.id
-     JOIN hotels ON bookings.hotel_id = hotels.id
-     JOIN rooms ON bookings.room_id = rooms.id
-     WHERE bookings.id = ?`,
-    [bookingId],
-    (error, result) => {
-      if (error) {
-        return response.status(500).json({
-          message: "Internal server error: " + error
-        });
-      }
+    const [rows] = await db.query(
+      `SELECT 
+          bookings.*, 
+          users.name AS user_name, 
+          hotels.name AS hotel_name, 
+          rooms.room_type
+       FROM bookings
+       JOIN users ON bookings.user_id = users.id
+       JOIN hotels ON bookings.hotel_id = hotels.id
+       JOIN rooms ON bookings.room_id = rooms.id
+       WHERE bookings.id = ?`,
+      [bookingId]
+    );
 
-      if (result.length === 0) {
-        return response.status(404).json({ message: "Booking not found" });
-      }
-
-      return response.status(200).json({
-        message: "Booking details fetched successfully",
-        data: result[0]
-      });
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Booking not found" });
     }
-  );
+
+    return res.status(200).json({ booking: rows[0] });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Internal server error", error });
+  }
 });
+
+
 
 
 //user booking history
-app.get("/api/booking/user/:id", (request, response) => {
-  const userId = request.params.id;
+app.get("/api/booking/user/:id", async (req, res) => {
+  try {
+    const userId = req.params.id;
 
-  db.query(
-    `SELECT bookings.*, hotels.hotel_name, hotels.city, rooms.room_type 
-     FROM bookings
-     JOIN hotels ON bookings.hotel_id = hotels.id
-     JOIN rooms ON bookings.room_id = rooms.id
-     WHERE bookings.user_id = ?
-     ORDER BY bookings.id DESC`,
-    [userId],
-    (error, result) => {
-      if (error) {
-        return response.status(500).json({
-          message: "Internal Server Error: " + error
-        });
-      }
+    const [rows] = await db.query(
+      `SELECT 
+          bookings.*, 
+          hotels.name AS hotel_name, 
+          hotels.location AS city, 
+          rooms.room_type
+       FROM bookings
+       JOIN hotels ON bookings.hotel_id = hotels.id
+       JOIN rooms ON bookings.room_id = rooms.id
+       WHERE bookings.user_id = ?
+       ORDER BY bookings.id DESC`,
+      [userId]
+    );
 
-      if (result.length === 0) {
-        return response.status(404).json({ message: "No booking history found" });
-      }
-
-      return response.status(200).json({
-        message: "User booking history fetched successfully",
-        data: result
-      });
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "No booking history found" });
     }
-  );
+
+    return res.status(200).json({
+      message: "User booking history fetched successfully",
+      data: rows
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      message: "Internal Server Error",
+      error
+    });
+  }
 });
+
 
 
 //cancle booking
-app.put("/api/booking/cancel/:id", (request, response) => {
-  const bookingId = request.params.id;
+app.put("/api/booking/cancel/:id", async (req, res) => {
+  try {
+    const bookingId = req.params.id;
 
-  db.query(
-    "UPDATE bookings SET status = ? WHERE id = ?",
-    ["cancelled", bookingId],
-    (error, result) => {
-      if (error) {
-        return response.status(500).json({
-          message: "Internal server error: " + error
-        });
-      }
+    // Check if the booking exists and its current status
+    const [bookingRows] = await db.query(
+      "SELECT status FROM bookings WHERE id = ?",
+      [bookingId]
+    );
 
-      if (result.affectedRows === 0) {
-        return response.status(404).json({ message: "Booking not found" });
-      }
-
-      return response.status(200).json({
-        message: "Booking cancelled successfully"
-      });
+    if (bookingRows.length === 0) {
+      return res.status(404).json({ message: "Booking not found" });
     }
-  );
+
+    if (bookingRows[0].status === "cancelled") {
+      return res.status(400).json({ message: "Booking is already cancelled" });
+    }
+
+    // Update booking status to cancelled
+    const [result] = await db.query(
+      "UPDATE bookings SET status = ? WHERE id = ?",
+      ["cancelled", bookingId]
+    );
+
+    return res.status(200).json({
+      message: "Booking cancelled successfully"
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
 });
+
 
 
 // Creat order payment api............................................................................Payment api
@@ -438,6 +478,10 @@ app.put("/api/booking/cancel/:id", (request, response) => {
 
 app.post("/api/payment/create", async (req, res) => {
   const { user_id, booking_id, amount, payment_method } = req.body;
+
+  if (!user_id || !booking_id || !amount || !payment_method) {
+    return res.status(400).json({ message: "All fields are required!" });
+  }
 
   try {
     const [result] = await db.query(
@@ -451,10 +495,10 @@ app.post("/api/payment/create", async (req, res) => {
       payment_id: result.insertId
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error(error);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
-
 
 // Payment sucessfully
 
