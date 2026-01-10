@@ -249,61 +249,67 @@ app.get("/api/hotels/search", async (req, res) => {
 
 
 //room list in hotel
-app.get("/api/rooms/:hotelId", (request, response) => {
-  const hotelId = request.params.hotelId;
+app.get("/api/rooms/:hotelId", async (req, res) => {
+  const hotelId = req.params.hotelId;
 
-  db.query(
-    "SELECT * FROM rooms WHERE hotel_id = ?",
-    [hotelId],
-    (error, result) => {
-      if (error) {
-        return response.status(500).json({ message: "Internal Server Error", error });
-      }
+  try {
+    const [rows] = await db.query(
+      "SELECT * FROM rooms WHERE hotel_id = ?",
+      [hotelId]
+    );
 
-      if (result.length === 0) {
-        return response.status(404).json({ message: "No rooms found for this hotel" });
-      }
-
-      response.status(200).json({
-        message: "Room list fetched successfully",
-        data: result
+    if (rows.length === 0) {
+      return res.status(404).json({
+        message: "No rooms found for this hotel"
       });
     }
-  );
+
+    res.status(200).json({
+      message: "Room list fetched successfully",
+      data: rows
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Internal Server Error",
+      error: error.message
+    });
+  }
 });
+
 
 
 // ROOMS API............
 
 
 // room details
-app.get("/api/room/:id", (req, res) => {
+app.get("/api/room/:id", async (req, res) => {
   const roomId = req.params.id;
 
-  db.query(
-    "SELECT id, hotel_id, room_type, price, available_rooms, description, image FROM rooms WHERE id = ?",
-    [roomId],
-    (error, rows) => {
-      if (error) {
-        return res.status(500).json({
-          message: "Internal Server Error",
-          error: error.message
-        });
-      }
+  try {
+    const [rows] = await db.query(
+      "SELECT id, hotel_id, room_type, price, total_rooms, available_rooms, description, image FROM rooms WHERE id = ?",
+      [roomId]
+    );
 
-      if (rows.length === 0) {
-        return res.status(404).json({
-          message: "Room not found"
-        });
-      }
-
-      res.status(200).json({
-        success: true,
-        message: "Room details fetched successfully",
-        data: rows[0]
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Room not found"
       });
     }
-  );
+
+    res.status(200).json({
+      success: true,
+      message: "Room details fetched successfully",
+      data: rows[0]
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message
+    });
+  }
 });
 
 
