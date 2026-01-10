@@ -8,6 +8,8 @@ const PORT = process.env.PORT || 3005;
 
 app.use(express.json());
 
+
+/// User api ...............................................................................................User api
 //get data
 
 app.get("/api/user",async(request, response)=>{
@@ -160,7 +162,7 @@ app.put("/api/user/profile/:id", async (request, response) => {
 
 
 
-// HOTEL API............
+// HOTEL API...............................................................................................Hotel api
 
 // get all hotel
 
@@ -201,15 +203,15 @@ app.get("/api/hotels/:id", async (req, res) => {
 
 
 app.get("/api/hotels/search", async (req, res) => {
-  const { city, minPrice, maxPrice, rating } = req.query;
-
   try {
+    const { location, minPrice, maxPrice, rating } = req.query;
+
     let query = "SELECT * FROM hotels WHERE 1=1";
     let values = [];
 
-    if (city) {
-      query += " AND city = ?";
-      values.push(city);
+    if (location) {
+      query += " AND LOWER(location) LIKE LOWER(?)";
+      values.push(`%${location.trim()}%`);
     }
 
     if (minPrice) {
@@ -229,12 +231,6 @@ app.get("/api/hotels/search", async (req, res) => {
 
     const [rows] = await db.query(query, values);
 
-    if (rows.length === 0) {
-      return res.status(404).json({
-        message: "No hotels found"
-      });
-    }
-
     res.status(200).json({
       success: true,
       total: rows.length,
@@ -249,6 +245,7 @@ app.get("/api/hotels/search", async (req, res) => {
   }
 });
 
+// Room api ...........................................................................................Roomm api
 
 
 //room list in hotel
@@ -280,34 +277,38 @@ app.get("/api/rooms/:hotelId", (request, response) => {
 
 
 // room details
-app.get("/api/room/:id", (request, response) => {
-  const roomId = request.params.id;
+app.get("/api/room/:id", (req, res) => {
+  const roomId = req.params.id;
 
   db.query(
-    "SELECT * FROM rooms WHERE id = ?",
+    "SELECT id, hotel_id, room_type, price, available_rooms, description, image FROM rooms WHERE id = ?",
     [roomId],
-    (error, result) => {
+    (error, rows) => {
       if (error) {
-        return response.status(500).json({
+        return res.status(500).json({
           message: "Internal Server Error",
-          error
+          error: error.message
         });
       }
 
-      if (result.length === 0) {
-        return response.status(404).json({ message: "Room not found" });
+      if (rows.length === 0) {
+        return res.status(404).json({
+          message: "Room not found"
+        });
       }
 
-      response.status(200).json({
+      res.status(200).json({
+        success: true,
         message: "Room details fetched successfully",
-        data: result[0]  // single object
+        data: rows[0]
       });
     }
   );
 });
 
 
-// BOOKING API.............
+
+// BOOKING API........................................................................................Booking api
 
 
 // create booking 
@@ -426,7 +427,7 @@ app.put("/api/booking/cancel/:id", (request, response) => {
 });
 
 
-// Creat order payment api.................
+// Creat order payment api............................................................................Payment api
 
 
 app.post("/api/payment/create", async (req, res) => {
@@ -451,44 +452,174 @@ app.post("/api/payment/create", async (req, res) => {
 
 // Payment sucessfully
 
-app.put("/api/payment/success/:paymentId", async (req, res) => {
-  const paymentId = req.params.paymentId;
+app.put("/api/payment/success/:payment_id", async (req, res) => {
+  const paymentId = req.params.payment_id;
 
   try {
-    // 1️⃣ Update payment status
+    // Update payment status
     await db.query(
       "UPDATE payments SET status = 'SUCCESS' WHERE id = ?",
       [paymentId]
     );
 
-    // 2️⃣ Get booking_id from payment
-    const [payment] = await db.query(
+    // Get booking id from payment
+    const [[payment]] = await db.query(
       "SELECT booking_id FROM payments WHERE id = ?",
       [paymentId]
     );
 
-    if (payment.length === 0) {
-      return res.status(404).json({ message: "Payment not found" });
-    }
-
-    // 3️⃣ Confirm booking
+    // Confirm booking
     await db.query(
-      "UPDATE bookings SET status = 'CONFIRMED' WHERE id = ?",
-      [payment[0].booking_id]
+      "UPDATE bookings SET status = 'confirmed' WHERE id = ?",
+      [payment.booking_id]
     );
 
     res.json({
-      success: true,
       message: "Payment successful & booking confirmed"
     });
+  } catch (error) {
+    res.status(500).json({
+      message: "Payment success handling failed",
+      error: error.message
+    });
+  }
+});
 
+
+// Payment fail............
+
+app.put("/api/payment/fail/:payment_id", async (req, res) => {
+  const paymentId = req.params.payment_id;
+
+  try {
+    await db.query(
+      "UPDATE payments SET status = 'FAILED' WHERE id = ?",
+      [paymentId]
+    );
+
+    res.json({
+      message: "Payment failed"
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Payment failed update error",
+      error: error.message
+    });
+  }
+});
+
+// Rating api...........................................................................................Rating api
+
+
+
+// add rating...........
+
+app.post("/api/rating/create", async (req, res) => {
+  const { user_id, hotel_id, rating, review } = req.body;
+
+  if (!user_id || !hotel_id || !rating) {
+    return res.status(400).json({ message: "user_id, hotel_id and rating are required" });
+  }
+
+  if (rating < 1 || rating > 5) {
+    return res.status(400).json({ message: "Rating must be between 1 and 5" });
+  }
+
+  try {
+    // Ek user ek hotel ko ek hi baar rate kare (optional but best)
+    const [exist] = await db.query(
+      "SELECT * FROM ratings WHERE user_id = ? AND hotel_id = ?",
+      [user_id, hotel_id]
+    );
+
+    if (exist.length > 0) {
+      return res.status(400).json({ message: "You already rated this hotel" });
+    }
+
+    const [result] = await db.query(
+      `INSERT INTO ratings (user_id, hotel_id, rating, review)
+       VALUES (?, ?, ?, ?)`,
+      [user_id, hotel_id, rating, review]
+    );
+
+    res.status(201).json({
+      message: "Rating added successfully",
+      rating_id: result.insertId
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// get rating by hotel
+
+
+app.get("/api/rating/hotel/:hotel_id", async (req, res) => {
+  const hotelId = req.params.hotel_id;
+
+  try {
+    // All ratings
+    const [ratings] = await db.query(
+      "SELECT * FROM ratings WHERE hotel_id = ?",
+      [hotelId]
+    );
+
+    // Average rating
+    const [[avg]] = await db.query(
+      "SELECT AVG(rating) as average_rating, COUNT(*) as total_reviews FROM ratings WHERE hotel_id = ?",
+      [hotelId]
+    );
+
+    res.json({
+      hotel_id: hotelId,
+      average_rating: avg.average_rating ? Number(avg.average_rating).toFixed(1) : "0.0",
+      total_reviews: avg.total_reviews,
+      ratings: ratings
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 
+//get rating by user
 
+app.get("/api/rating/user/:user_id", async (req, res) => {
+  const userId = req.params.user_id;
+
+  try {
+    const [rows] = await db.query(
+      "SELECT * FROM ratings WHERE user_id = ?",
+      [userId]
+    );
+
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// update rating
+
+app.put("/api/rating/update/:id", async (req, res) => {
+  const ratingId = req.params.id;
+  const { rating, review } = req.body;
+
+  if (rating && (rating < 1 || rating > 5)) {
+    return res.status(400).json({ message: "Rating must be between 1 and 5" });
+  }
+
+  try {
+    await db.query(
+      "UPDATE ratings SET rating = ?, review = ? WHERE id = ?",
+      [rating, review, ratingId]
+    );
+
+    res.json({ message: "Rating updated successfully" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 
 
