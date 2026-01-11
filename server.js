@@ -536,7 +536,7 @@ app.put("/api/payment/success/:payment_id", async (req, res) => {
 });
 
 
-// Payment fail............
+// Payment fail.....................
 
 app.put("/api/payment/fail/:payment_id", async (req, res) => {
   const paymentId = req.params.payment_id;
