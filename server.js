@@ -315,53 +315,74 @@ app.get("/api/room/:id", async (req, res) => {
 // create booking 
 app.post("/api/booking/create", async (req, res) => {
   try {
-    const { user_id, hotel_id, room_id, check_in, check_out, total_price, guests } = req.body;
+    const {
+      user_id,
+      hotel_id,
+      room_id,
+      check_in,
+      check_out,
+      total_price,
+      guests,
+    } = req.body;
 
-    // 1️⃣ Validate required fields
-    if (!user_id || !hotel_id || !room_id || !check_in || !check_out || !total_price || !guests) {
+    console.log("Incoming Body:", req.body);
+
+    // 1️⃣ Validate fields
+    if (
+      !user_id ||
+      !hotel_id ||
+      !room_id ||
+      !check_in ||
+      !check_out ||
+      !total_price ||
+      !guests
+    ) {
       return res.status(400).json({ message: "All fields are required!" });
     }
 
-    // 2️⃣ Validate check-in and check-out dates
+    // 2️⃣ Validate check-in/out
     const checkInDate = new Date(check_in);
     const checkOutDate = new Date(check_out);
     if (isNaN(checkInDate) || isNaN(checkOutDate) || checkInDate >= checkOutDate) {
-      return res.status(400).json({ message: "Invalid check-in or check-out date" });
+      return res
+        .status(400)
+        .json({ message: "Invalid check-in or check-out date" });
     }
 
     // 3️⃣ Check room availability
-    const [room] = await db.query("SELECT available_rooms FROM rooms WHERE id = ?", [room_id]);
-    if (!room[0]) {
-      return res.status(404).json({ message: "Room not found" });
-    }
+    const [room] = await db.query(
+      "SELECT available_rooms FROM rooms WHERE id = ?",
+      [room_id]
+    );
+    if (!room[0]) return res.status(404).json({ message: "Room not found" });
     if (room[0].available_rooms < guests) {
       return res.status(400).json({ message: "Not enough rooms available" });
     }
 
     // 4️⃣ Insert booking
     const [result] = await db.query(
-      "INSERT INTO bookings (user_id, hotel_id, room_id, check_in, check_out, total_price, guests, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [user_id, hotel_id, room_id, check_in, check_out, total_price, guests, "pending"]
+      `INSERT INTO bookings 
+      (user_id, hotel_id, room_id, check_in, check_out, total_price, guests, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [user_id, hotel_id, room_id, check_in, check_out, total_price, guests, "confirmed"]
     );
 
-    // 5️⃣ Optionally update available_rooms
+    // 5️⃣ Update available rooms
     await db.query(
       "UPDATE rooms SET available_rooms = available_rooms - ? WHERE id = ?",
       [guests, room_id]
     );
 
-    // 6️⃣ Return response
+    // 6️⃣ Return Booking Success
     return res.status(200).json({
       message: "Booking created successfully",
-      booking_id: result.insertId
+      booking_id: result.insertId,
     });
-
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Internal server error", error });
   }
 });
-
 
 //booking details 
 app.get("/api/booking/:id", async (req, res) => {
