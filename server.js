@@ -312,31 +312,22 @@ app.get("/api/room/:id", async (req, res) => {
 // BOOKING API........................................................................................Booking api
 
 
-// create booking 
+
+// -------------------- Booking Create --------------------
 app.post("/api/booking/create", async (req, res) => {
+  const {
+    user_id,
+    hotel_id,
+    room_id,
+    check_in,
+    check_out,
+    total_price,
+    guests,
+  } = req.body;
+
   try {
-    const {
-      user_id,
-      hotel_id,
-      room_id,
-      check_in,
-      check_out,
-      total_price,
-      guests,
-    } = req.body;
-
-    console.log("Incoming Body:", req.body);
-
     // 1️⃣ Validate fields
-    if (
-      !user_id ||
-      !hotel_id ||
-      !room_id ||
-      !check_in ||
-      !check_out ||
-      !total_price ||
-      !guests
-    ) {
+    if (!user_id || !hotel_id || !room_id || !check_in || !check_out || !total_price || !guests) {
       return res.status(400).json({ message: "All fields are required!" });
     }
 
@@ -344,47 +335,55 @@ app.post("/api/booking/create", async (req, res) => {
     const checkInDate = new Date(check_in);
     const checkOutDate = new Date(check_out);
     if (isNaN(checkInDate) || isNaN(checkOutDate) || checkInDate >= checkOutDate) {
-      return res
-        .status(400)
-        .json({ message: "Invalid check-in or check-out date" });
+      return res.status(400).json({ message: "Invalid check-in or check-out date" });
     }
 
     // 3️⃣ Check room availability
-    const [room] = await db.query(
-      "SELECT available_rooms FROM rooms WHERE id = ?",
-      [room_id]
-    );
+    const [room] = await db.query("SELECT available_rooms FROM rooms WHERE id = ?", [room_id]);
     if (!room[0]) return res.status(404).json({ message: "Room not found" });
-    if (room[0].available_rooms < guests) {
-      return res.status(400).json({ message: "Not enough rooms available" });
+    if (room[0].available_rooms < guests) return res.status(400).json({ message: "Not enough rooms available" });
+
+    // 4️⃣ Begin transaction
+    await db.beginTransaction();
+
+    try {
+      // Insert booking
+      const [result] = await db.query(
+        `INSERT INTO bookings
+        (user_id, hotel_id, room_id, check_in, check_out, total_price, guests, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [user_id, hotel_id, room_id, check_in, check_out, total_price, guests, "confirmed"]
+      );
+
+      // Update room availability
+      await db.query(
+        "UPDATE rooms SET available_rooms = available_rooms - ? WHERE id = ?",
+        [guests, room_id]
+      );
+
+      await db.commit();
+
+      return res.status(200).json({
+        message: "Booking created successfully",
+        booking_id: result.insertId,
+      });
+
+    } catch (err) {
+      await db.rollback();
+      console.error(err);
+      return res.status(500).json({ message: "Internal server error", error: err });
     }
 
-    // 4️⃣ Insert booking
-    const [result] = await db.query(
-      `INSERT INTO bookings 
-      (user_id, hotel_id, room_id, check_in, check_out, total_price, guests, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [user_id, hotel_id, room_id, check_in, check_out, total_price, guests, "confirmed"]
-    );
-
-    // 5️⃣ Update available rooms
-    await db.query(
-      "UPDATE rooms SET available_rooms = available_rooms - ? WHERE id = ?",
-      [guests, room_id]
-    );
-
-    // 6️⃣ Return Booking Success
-    return res.status(200).json({
-      message: "Booking created successfully",
-      booking_id: result.insertId,
-    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Internal server error", error });
   }
 });
 
-//booking details 
+// -------------------- Single Booking --------------------
+
+
+
 app.get("/api/booking/:id", async (req, res) => {
   try {
     const bookingId = req.params.id;
@@ -403,9 +402,7 @@ app.get("/api/booking/:id", async (req, res) => {
       [bookingId]
     );
 
-    if (rows.length === 0) {
-      return res.status(404).json({ message: "Booking not found" });
-    }
+    if (rows.length === 0) return res.status(404).json({ message: "Booking not found" });
 
     return res.status(200).json({ booking: rows[0] });
 
@@ -415,13 +412,18 @@ app.get("/api/booking/:id", async (req, res) => {
   }
 });
 
+// -------------------- User Booking History --------------------
 
 
 
-//user booking history
 app.get("/api/booking/user/:id", async (req, res) => {
   try {
     const userId = req.params.id;
+
+    // Optional Authorization check
+    // if (parseInt(userId) !== req.user.id) {
+    //   return res.status(403).json({ message: "Forbidden" });
+    // }
 
     const [rows] = await db.query(
       `SELECT 
@@ -437,9 +439,7 @@ app.get("/api/booking/user/:id", async (req, res) => {
       [userId]
     );
 
-    if (rows.length === 0) {
-      return res.status(404).json({ message: "No booking history found" });
-    }
+    if (rows.length === 0) return res.status(404).json({ message: "No booking history found" });
 
     return res.status(200).json({
       message: "User booking history fetched successfully",
@@ -448,49 +448,44 @@ app.get("/api/booking/user/:id", async (req, res) => {
 
   } catch (error) {
     console.error(error);
-    return res.status(500).json({
-      message: "Internal Server Error",
-      error
-    });
+    return res.status(500).json({ message: "Internal Server Error", error });
   }
 });
 
+// -------------------- Cancel Booking --------------------
 
 
-//cancle booking
+
 app.put("/api/booking/cancel/:id", async (req, res) => {
   try {
     const bookingId = req.params.id;
 
-    // Check if the booking exists and its current status
+    // Check booking status
     const [bookingRows] = await db.query(
-      "SELECT status FROM bookings WHERE id = ?",
+      "SELECT status, room_id, guests FROM bookings WHERE id = ?",
       [bookingId]
     );
 
-    if (bookingRows.length === 0) {
-      return res.status(404).json({ message: "Booking not found" });
-    }
+    if (bookingRows.length === 0) return res.status(404).json({ message: "Booking not found" });
+    if (bookingRows[0].status === "cancelled") return res.status(400).json({ message: "Booking is already cancelled" });
 
-    if (bookingRows[0].status === "cancelled") {
-      return res.status(400).json({ message: "Booking is already cancelled" });
-    }
+    const roomId = bookingRows[0].room_id;
+    const guests = bookingRows[0].guests;
 
-    // Update booking status to cancelled
-    const [result] = await db.query(
-      "UPDATE bookings SET status = ? WHERE id = ?",
-      ["cancelled", bookingId]
-    );
+    // Update booking status
+    await db.query("UPDATE bookings SET status = ? WHERE id = ?", ["cancelled", bookingId]);
 
-    return res.status(200).json({
-      message: "Booking cancelled successfully"
-    });
+    // Restore room availability
+    await db.query("UPDATE rooms SET available_rooms = available_rooms + ? WHERE id = ?", [guests, roomId]);
+
+    return res.status(200).json({ message: "Booking cancelled successfully" });
 
   } catch (error) {
     console.error(error);
-    return res.status(500).json({ message: "Internal Server Error" });
+    return res.status(500).json({ message: "Internal Server Error", error });
   }
 });
+
 
 
 
