@@ -490,8 +490,15 @@ app.put("/api/booking/cancel/:id", async (req, res) => {
 
 
 // Creat order payment api............................................................................Payment api
+const Razorpay = require("razorpay");
+const crypto = require("crypto");
 
+const razorpay = new Razorpay({
+  key_id: "rzp_test_xxxxxxxx",        // use env variables in production
+  key_secret: "xxxxxxxxxxxxx",
+});
 
+// ====================== CREATE PAYMENT ORDER ======================
 app.post("/api/payment/create", async (req, res) => {
   const { user_id, booking_id, amount, payment_method } = req.body;
 
@@ -500,45 +507,78 @@ app.post("/api/payment/create", async (req, res) => {
   }
 
   try {
+    const amountInPaise = amount * 100; // Razorpay requires paise
+
+    // 1️⃣ Razorpay order create
+    const order = await razorpay.orders.create({
+      amount: amountInPaise,
+      currency: "INR",
+      receipt: `receipt_${booking_id}`,
+      payment_capture: 1, // auto capture
+    });
+
+    // 2️⃣ Save in DB with razorpay_order_id
     const [result] = await db.query(
-      `INSERT INTO payments (user_id, booking_id, amount, payment_method, status)
-       VALUES (?, ?, ?, ?, 'PENDING')`,
-      [user_id, booking_id, amount, payment_method]
+      `INSERT INTO payments 
+      (user_id, booking_id, amount, payment_method, status, razorpay_order_id)
+      VALUES (?, ?, ?, ?, 'PENDING', ?)`,
+      [user_id, booking_id, amount, payment_method, order.id]
     );
 
+    // 3️⃣ Send order id to Flutter
     res.status(201).json({
       message: "Payment order created",
-      payment_id: result.insertId
+      payment_id: result.insertId,
+      razorpay_order_id: order.id,
+      amount: order.amount,
+      currency: order.currency,
     });
+
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Internal server error" });
+    res.status(500).json({ message: "Internal server error", error: error.message });
   }
 });
 
-// Payment sucessfully
-
+// ====================== PAYMENT SUCCESS ======================
 app.put("/api/payment/success/:payment_id", async (req, res) => {
   const paymentId = req.params.payment_id;
+  const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body;
+
+  if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
+    return res.status(400).json({ message: "Missing Razorpay payment details" });
+  }
 
   try {
-    // Update payment status
+    // 1️⃣ Verify Razorpay signature
+    const generated_signature = crypto
+      .createHmac("sha256", razorpay.key_secret)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest("hex");
+
+    if (generated_signature !== razorpay_signature) {
+      return res.status(400).json({ message: "Invalid signature" });
+    }
+
+    // 2️⃣ Update payment status
     await db.query(
-      "UPDATE payments SET status = 'SUCCESS' WHERE id = ?",
-      [paymentId]
+      "UPDATE payments SET status = 'SUCCESS', razorpay_payment_id = ? WHERE id = ?",
+      [razorpay_payment_id, paymentId]
     );
 
-    // Get booking id from payment
+    // 3️⃣ Get booking id from payment
     const [[payment]] = await db.query(
       "SELECT booking_id FROM payments WHERE id = ?",
       [paymentId]
     );
 
     // Confirm booking
-    await db.query(
-      "UPDATE bookings SET status = 'confirmed' WHERE id = ?",
-      [payment.booking_id]
-    );
+    if (payment) {
+      await db.query(
+        "UPDATE bookings SET status = 'confirmed' WHERE id = ?",
+        [payment.booking_id]
+      );
+    }
 
     res.json({
       message: "Payment successful & booking confirmed"
@@ -551,9 +591,7 @@ app.put("/api/payment/success/:payment_id", async (req, res) => {
   }
 });
 
-
-// Payment fail.....................
-
+// ====================== PAYMENT FAIL ======================
 app.put("/api/payment/fail/:payment_id", async (req, res) => {
   const paymentId = req.params.payment_id;
 
