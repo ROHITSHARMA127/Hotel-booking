@@ -315,70 +315,70 @@ app.get("/api/room/:id", async (req, res) => {
 
 // -------------------- Booking Create --------------------
 app.post("/api/booking/create", async (req, res) => {
-  const {
-    user_id,
-    hotel_id,
-    room_id,
-    check_in,
-    check_out,
-    total_price,
-    guests,
-  } = req.body;
+  const { user_id, hotel_id, room_id, check_in, check_out, total_price, guests } = req.body;
 
+  if (!user_id || !hotel_id || !room_id || !check_in || !check_out || !total_price || !guests) {
+    return res.status(400).json({ message: "All fields are required!" });
+  }
+
+  const checkInDate = new Date(check_in);
+  const checkOutDate = new Date(check_out);
+
+  if (isNaN(checkInDate.getTime()) || isNaN(checkOutDate.getTime()) || checkInDate >= checkOutDate) {
+    return res.status(400).json({ message: "Invalid check-in or check-out date" });
+  }
+
+  let connection;
   try {
-    // 1️⃣ Validate fields
-    if (!user_id || !hotel_id || !room_id || !check_in || !check_out || !total_price || !guests) {
-      return res.status(400).json({ message: "All fields are required!" });
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    const [room] = await connection.query(
+      "SELECT available_rooms FROM rooms WHERE id = ? FOR UPDATE",
+      [room_id]
+    );
+
+    if (!room || room.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Room not found" });
     }
 
-    // 2️⃣ Validate check-in/out
-    const checkInDate = new Date(check_in);
-    const checkOutDate = new Date(check_out);
-    if (isNaN(checkInDate) || isNaN(checkOutDate) || checkInDate >= checkOutDate) {
-      return res.status(400).json({ message: "Invalid check-in or check-out date" });
+    if (room[0].available_rooms < guests) {
+      await connection.rollback();
+      return res.status(400).json({ message: "Not enough rooms available" });
     }
 
-    // 3️⃣ Check room availability
-    const [room] = await db.query("SELECT available_rooms FROM rooms WHERE id = ?", [room_id]);
-    if (!room[0]) return res.status(404).json({ message: "Room not found" });
-    if (room[0].available_rooms < guests) return res.status(400).json({ message: "Not enough rooms available" });
+    const [result] = await connection.query(
+      `INSERT INTO bookings 
+      (user_id, hotel_id, room_id, check_in, check_out, total_price, guests, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [user_id, hotel_id, room_id, check_in, check_out, total_price, guests, "confirmed"]
+    );
 
-    // 4️⃣ Begin transaction
-    await db.beginTransaction();
+    await connection.query(
+      "UPDATE rooms SET available_rooms = available_rooms - ? WHERE id = ?",
+      [guests, room_id]
+    );
 
-    try {
-      // Insert booking
-      const [result] = await db.query(
-        `INSERT INTO bookings
-        (user_id, hotel_id, room_id, check_in, check_out, total_price, guests, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [user_id, hotel_id, room_id, check_in, check_out, total_price, guests, "confirmed"]
-      );
+    await connection.commit();
 
-      // Update room availability
-      await db.query(
-        "UPDATE rooms SET available_rooms = available_rooms - ? WHERE id = ?",
-        [guests, room_id]
-      );
+    return res.status(200).json({
+      message: "Booking created successfully",
+      booking_id: result.insertId,
+    });
 
-      await db.commit();
-
-      return res.status(200).json({
-        message: "Booking created successfully",
-        booking_id: result.insertId,
-      });
-
-    } catch (err) {
-      await db.rollback();
-      console.error(err);
-      return res.status(500).json({ message: "Internal server error", error: err });
-    }
-
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: "Internal server error", error });
+  } catch (err) {
+    if (connection) await connection.rollback();
+    console.error("Booking Error:", err);
+    return res.status(500).json({
+      message: "Internal server error",
+      error: err.message,
+    });
+  } finally {
+    if (connection) connection.release();
   }
 });
+
 
 // -------------------- Single Booking --------------------
 
