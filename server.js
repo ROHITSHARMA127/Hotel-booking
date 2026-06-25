@@ -12,9 +12,9 @@ app.use(express.json());
 /// User api ...............................................................................................User api
 //get data
 
-app.get("/api/user",async(request, response)=>{
-    const  result =await db.query("SELECT * FROM users")
-    response.status(200).json(result);
+app.get("/api/user", async (request, response) => {
+  const result = await db.query("SELECT * FROM users")
+  response.status(200).json(result);
 
 });
 
@@ -23,83 +23,166 @@ app.get("/api/user",async(request, response)=>{
 
 
 app.post("/api/user/register", async (request, response) => {
-    const name = request.body.name;
-    const email = request.body.email;
-    const password = request.body.password;  // <-- no hashing
-    
-    try {
-        const [result] = await db.query(
-            "INSERT INTO users(name, email, password) VALUES (?, ?, ?)",
-            [name, email, password]   // <-- plain password
-        );
+  const name = request.body.name;
+  const email = request.body.email;
+  const password = request.body.password;  // <-- no hashing
 
-        response.status(201).json({ 
-            id: result.insertId, 
-            name: name, 
-            email: email 
-        });
+  try {
+    const [result] = await db.query(
+      "INSERT INTO users(name, email, password) VALUES (?, ?, ?)",
+      [name, email, password]   // <-- plain password
+    );
 
-    } catch (error) {
-        console.error("Database INSERT error:", error);
-        if (error.errno === 1062) {
-             return response.status(409).json({ message: "This email address is already registered." });
-        }
-        return response.status(500).json({ 
-            message: "Server internal error. Could not register user." 
-        });
+    response.status(201).json({
+      id: result.insertId,
+      name: name,
+      email: email
+    });
+
+  } catch (error) {
+    console.error("Database INSERT error:", error);
+    if (error.errno === 1062) {
+      return response.status(409).json({ message: "This email address is already registered." });
     }
+    return response.status(500).json({
+      message: "Server internal error. Could not register user."
+    });
+  }
 });
 
 
 
 // login api 
+// app.post("/api/user/login", async (request, response) => {
+//     const email = request.body.email;
+//     const password = request.body.password;     // plain password
+//     const secretKey = "ghdfjjgi9ew8865w"; 
+
+//     try {
+//         // get user by email
+//         const [result] = await db.query(
+//             "SELECT id, name, email, password FROM users WHERE email = ?",
+//             [email]
+//         );
+
+//         // if email not found
+//         if (result.length === 0) {
+//             return response.status(401).json({ message: "Login failed: Invalid email or password." });
+//         }
+
+//         const user = result[0];
+
+//         // plain password compare
+//         if (password !== user.password) {
+//             return response.status(401).json({ message: "Login failed: Invalid email or password." });
+//         }
+
+//         // create jwt token
+//         const token = jwt.sign(
+//             { id: user.id, name: user.name, email: user.email },
+//             secretKey,
+//             { expiresIn: "1h" }
+//         );
+
+//         response.status(200).json({
+//             message: "Login successfully",
+//             token: token,
+//             user: {
+//                 id: user.id,
+//                 name: user.name,
+//                 email: user.email
+//             }
+//         });
+
+//     } catch (error) {
+//         console.error("Login attempt error:", error);
+//         return response.status(500).json({
+//             message: "An internal server error occurred during login."
+//         });
+//     }
+// });
+
+// login api
 app.post("/api/user/login", async (request, response) => {
-    const email = request.body.email;
-    const password = request.body.password;     // plain password
-    const secretKey = "ghdfjjgi9ew8865w"; 
+  const email = request.body.email;
+  const password = request.body.password;
+  const secretKey = "ghdfjjgi9ew8865w";
 
-    try {
-        // get user by email
-        const [result] = await db.query(
-            "SELECT id, name, email, password FROM users WHERE email = ?",
-            [email]
-        );
+  try {
 
-        // if email not found
-        if (result.length === 0) {
-            return response.status(401).json({ message: "Login failed: Invalid email or password." });
+    // Play Store Review Account
+    if (
+      process.env.NODE_ENV === "production" &&
+      email === "ajay.kumar@edugaon.com" &&
+      password === "123456"
+    ) {
+      const token = jwt.sign(
+        {
+          id: 0,
+          name: "Play Store Reviewer",
+          email: "ajay.kumar@edugaon.com"
+        },
+        secretKey,
+        { expiresIn: "1h" }
+      );
+
+      return response.status(200).json({
+        message: "Login successfully",
+        token,
+        user: {
+          id: 0,
+          name: "Play Store Reviewer",
+          email: "ajay.kumar@edugaon.com"
         }
-
-        const user = result[0];
-
-        // plain password compare
-        if (password !== user.password) {
-            return response.status(401).json({ message: "Login failed: Invalid email or password." });
-        }
-
-        // create jwt token
-        const token = jwt.sign(
-            { id: user.id, name: user.name, email: user.email },
-            secretKey,
-            { expiresIn: "1h" }
-        );
-
-        response.status(200).json({
-            message: "Login successfully",
-            token: token,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email
-            }
-        });
-
-    } catch (error) {
-        console.error("Login attempt error:", error);
-        return response.status(500).json({
-            message: "An internal server error occurred during login."
-        });
+      });
     }
+
+    // Normal login
+    const [result] = await db.query(
+      "SELECT id, name, email, password FROM users WHERE email = ?",
+      [email]
+    );
+
+    if (result.length === 0) {
+      return response.status(401).json({
+        message: "Login failed: Invalid email or password."
+      });
+    }
+
+    const user = result[0];
+
+    if (password !== user.password) {
+      return response.status(401).json({
+        message: "Login failed: Invalid email or password."
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        name: user.name,
+        email: user.email
+      },
+      secretKey,
+      { expiresIn: "1h" }
+    );
+
+    return response.status(200).json({
+      message: "Login successfully",
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email
+      }
+    });
+
+  } catch (error) {
+    console.error("Login attempt error:", error);
+    return response.status(500).json({
+      message: "An internal server error occurred during login."
+    });
+  }
 });
 
 
@@ -109,55 +192,55 @@ app.post("/api/user/login", async (request, response) => {
 
 // GET PROFILE
 app.get("/api/user/profile/:id", async (request, response) => {
-    const id = request.params.id;
+  const id = request.params.id;
 
-    try {
-        const [rows] = await db.query(
-            "SELECT id, name, email FROM users WHERE id = ?",
-            [id]
-        );
+  try {
+    const [rows] = await db.query(
+      "SELECT id, name, email FROM users WHERE id = ?",
+      [id]
+    );
 
-        if (rows.length === 0) {
-            return response.status(404).json({ message: "User not found" });
-        }
-
-        response.status(200).json({
-            status: "success",
-            user: rows[0]
-        });
-
-    } catch (error) {
-        return response.status(500).json({
-            message: "Server error: " + error
-        });
+    if (rows.length === 0) {
+      return response.status(404).json({ message: "User not found" });
     }
+
+    response.status(200).json({
+      status: "success",
+      user: rows[0]
+    });
+
+  } catch (error) {
+    return response.status(500).json({
+      message: "Server error: " + error
+    });
+  }
 });
 
 // UPDATE PROFILE
 app.put("/api/user/profile/:id", async (request, response) => {
-    const id = request.params.id;
-    const { name, email } = request.body;
+  const id = request.params.id;
+  const { name, email } = request.body;
 
-    try {
-        const [result] = await db.query(
-            "UPDATE users SET name = ?, email = ? WHERE id = ?",
-            [name, email, id]
-        );
+  try {
+    const [result] = await db.query(
+      "UPDATE users SET name = ?, email = ? WHERE id = ?",
+      [name, email, id]
+    );
 
-        if (result.affectedRows === 0) {
-            return response.status(404).json({ message: "User not found" });
-        }
-
-        response.status(200).json({
-            status: "success",
-            message: "Profile updated successfully"
-        });
-
-    } catch (error) {
-        return response.status(500).json({
-            message: "Server error: " + error
-        });
+    if (result.affectedRows === 0) {
+      return response.status(404).json({ message: "User not found" });
     }
+
+    response.status(200).json({
+      status: "success",
+      message: "Profile updated successfully"
+    });
+
+  } catch (error) {
+    return response.status(500).json({
+      message: "Server error: " + error
+    });
+  }
 });
 
 
